@@ -1,0 +1,9 @@
+# Post-transcription corrections (regular expression <TAB> replacement), case-insensitive.
+# One rule per line; lines starting with # are comments.
+# Reload after editing: launchctl kickstart -k gui/$(id -u)/com.whisper.stt
+#
+# Example (French health IT): Whisper writes "GRADE" for the acronym "GRADeS".
+\b(?:le|du|au)\s+grade(?:s)?\s+(?:de\s+)?(Bourgogne|Normandie|Bretagne|Occitanie)	le GRADeS \1
+\bgrade(?:s)?\s+(?:de\s+)?(Bourgogne|Normandie|Bretagne|Occitanie)	GRADeS \1
+\bGRADES\b	GRADeS
+\bIHE,\s*HL7\b	IHE-HL7

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+ <key>Label</key><string>com.openwebui.serve</string>
+ <key>ProgramArguments</key><array><string>__HOME__/.local/bin/open-webui</string><string>serve</string><string>--host</string><string>127.0.0.1</string><string>--port</string><string>3000</string></array>
+ <key>EnvironmentVariables</key><dict>
+  <key>DATA_DIR</key><string>__HOME__/.local/share/open-webui</string>
+  <key>WEBUI_SECRET_KEY</key><string>__WEBUI_SECRET_KEY__</string>
+  <key>OLLAMA_BASE_URL</key><string>http://127.0.0.1:11434</string>
+  <key>OPENAI_API_BASE_URL</key><string>http://127.0.0.1:8080/v1</string>
+  <key>OPENAI_API_KEY</key><string>local</string>
+  <key>SCARF_NO_ANALYTICS</key><string>true</string>
+  <key>DO_NOT_TRACK</key><string>true</string>
+  <key>ANONYMIZED_TELEMETRY</key><string>false</string>
+ </dict>
+ <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+ <key>StandardOutPath</key><string>__HOME__/Library/Logs/open-webui/serve.log</string>
+ <key>StandardErrorPath</key><string>__HOME__/Library/Logs/open-webui/serve.log</string>
+</dict></plist>

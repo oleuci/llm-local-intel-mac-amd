@@ -1,0 +1,1 @@
+Vocabulaire : GRADeS, GHT, ARS, ANS, DNS, INS, HDS, RSSI, DPI, DMP, Ségur numérique, Mon espace santé, MSSanté, Pro Santé Connect, IHE-HL7, FHIR, e-parcours.
