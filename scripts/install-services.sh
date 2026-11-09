@@ -16,6 +16,9 @@ SK="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:WEBUI_SECRET_KEY' 
 
 for p in launchd/*.plist; do
   label="$(basename "$p" .plist)"
+  # Skip services whose program is not installed (e.g. Ollama or Open WebUI not chosen)
+  exe="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$p" | sed "s#__HOME__#$HOME#g")"
+  if [ ! -x "$exe" ]; then echo "skipped: $label (not installed: $exe)"; continue; fi
   launchctl bootout "gui/$UID_/$label" 2>/dev/null || true
   # bootout is asynchronous: wait for unload, otherwise bootstrap fails (error 5)
   for _ in $(seq 1 20); do launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || break; sleep 0.5; done

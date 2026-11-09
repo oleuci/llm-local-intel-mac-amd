@@ -11,7 +11,6 @@
   <key>PORT</key><string>8092</string>
   <key>WHISPER_DEFAULT_MODEL</key><string>large-v3-turbo</string>
   <key>WHISPER_THREADS</key><string>8</string>
-  <key>HF_HUB_OFFLINE</key><string>1</string>
  </dict>
  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
  <key>StandardOutPath</key><string>__HOME__/Library/Logs/whisper-stt/server.log</string>

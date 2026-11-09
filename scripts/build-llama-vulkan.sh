@@ -12,7 +12,7 @@ MOLTENVK_VER="${MOLTENVK_VER:-v1.4.2}"
 SRC="${SRC:-$HOME/src}"
 VK="$SRC/vk"
 PREFIX_VK="$HOME/.local/vulkan"          # SPIRV-Headers are installed here
-DEST="$HOME/.local/share/llama-vk"      # final binaries
+DEST="$HOME/.local/share/llama-vk/bin"  # final binaries (same layout as the release package)
 JOBS="$(sysctl -n hw.ncpu)"
 
 mkdir -p "$VK" "$DEST"
