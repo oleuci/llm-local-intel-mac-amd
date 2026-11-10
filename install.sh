@@ -2,10 +2,10 @@
 # One-step installer: local LLM on an Intel Mac with an AMD GPU (Vulkan / MoltenVK).
 #
 #   curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --full      # + Open WebUI + Whisper dictation
+#   curl -fsSL .../install.sh | bash -s -- --full      # + Open WebUI (Docker) + Whisper dictation
 #
 # Options:
-#   --full          also install Open WebUI (chat UI) and the Whisper STT service
+#   --full          also install Open WebUI (official Docker image, via Colima) and Whisper dictation
 #   --no-model      do not download the default model (Qwen 3.5 9B Q4_K_M + vision, ~6.5 GB)
 #   --no-service    install files only, do not create/start LaunchAgents
 #
@@ -84,21 +84,32 @@ if [ "$WITH_MODEL" = 1 ]; then
   done
 fi
 
-# --- 5. Optional: Open WebUI + Whisper STT -------------------------------------
+# --- 5. Optional (--full): Whisper STT environment + Docker runtime ------------
 if [ "$FULL" = 1 ]; then
-  say "Installing Open WebUI (via uv)"
+  say "Installing the Whisper dictation environment (via uv)"
   if ! command -v uv >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/uv" ]; then
     echo "uv (Python package manager by Astral) is required: https://docs.astral.sh/uv/"
     curl -LsSf https://astral.sh/uv/install.sh | sh
   fi
-  UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
-  "$UV" tool install --python 3.11 open-webui || "$UV" tool upgrade open-webui
+  PATH="$HOME/.local/bin:$PATH" "$APP/scripts/setup-stt.sh"
+  say "Installing the Docker runtime (Colima + Lima + Docker CLI) for Open WebUI"
+  "$APP/scripts/install-docker-tools.sh"
 fi
 
 # --- 6. Services ----------------------------------------------------------------
 if [ "$WITH_SERVICE" = 1 ]; then
   say "Installing services (LaunchAgents)"
   "$APP/scripts/install-services.sh"
+fi
+
+# --- 7. Optional (--full): Open WebUI, official Docker image --------------------
+# Native Open WebUI >= 0.8 can't be installed reliably on Intel Macs (see README).
+if [ "$FULL" = 1 ]; then
+  say "Starting Open WebUI (official Docker image) — first run downloads ~6.5 GB"
+  "$APP/scripts/owui-docker.sh"
+fi
+
+if [ "$WITH_SERVICE" = 1 ]; then
   say "Health check"
   sleep 5
   "$APP/scripts/healthcheck.sh" || true

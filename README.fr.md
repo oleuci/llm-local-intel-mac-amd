@@ -23,11 +23,12 @@ Ollama, LM Studio et la plupart des outils « clé en main » **ignorent les GPU
 7. [Réglages (mesurés)](#réglages-mesurés)
 8. [Choisir un modèle / dimensionner la VRAM](#choisir-un-modèle--dimensionner-la-vram)
 9. [Utiliser l'API](#utiliser-lapi)
-10. [Configurer Open WebUI](#configurer-open-webui)
-11. [Dictée vocale](#dictée-vocale)
-12. [Dépannage](#dépannage)
-13. [Enseignements](#enseignements)
-14. [Désinstallation](#désinstallation) · [Licence](#licence)
+10. [Open WebUI : pourquoi Docker sur Mac Intel](#open-webui--pourquoi-docker-sur-mac-intel)
+11. [Configurer Open WebUI](#configurer-open-webui)
+12. [Dictée vocale](#dictée-vocale)
+13. [Dépannage](#dépannage)
+14. [Enseignements](#enseignements)
+15. [Désinstallation](#désinstallation) · [Licence](#licence)
 
 ---
 
@@ -42,7 +43,7 @@ Mesures faites avec `llama-bench` sur Qwen 3.5 9B, Q4_K_M (5,2 Go) :
 | **Vulkan / MoltenVK, Radeon Pro 5700 XT** | **~270-286 tok/s** | **~30-35 tok/s** |
 | CPU seul, 8 threads (AVX2) | 28 tok/s | 4,7 tok/s |
 
-Une réponse courte commence à s'afficher en **~1 s**. La description d'une image (module vision chargé) prend **~5 s**.
+En conversation réelle, via le serveur, la génération tourne à **~26-30 tok/s**. `llama-bench` est un cas idéal : pas de gabarit de conversation, pas d'échantillonnage, contexte vide. Une réponse courte arrive en **~1 à 1,5 s**. La description d'une image (module vision chargé) prend **~5 s**.
 
 ## Installation rapide
 
@@ -54,20 +55,23 @@ Prérequis : un Mac Intel sous macOS **12 ou plus récent**, un GPU AMD compatib
 # Serveur LLM seul (llama.cpp Vulkan + Qwen 3.5 9B + vision), en service d'arrière-plan
 curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash
 
-# Pile complète : + Open WebUI (chat sur http://localhost:3000) + service de dictée
+# Pile complète : + Open WebUI (image Docker officielle, chat sur http://localhost:3000) + dictée
 curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash -s -- --full
 ```
+
+`--full` exige **macOS 13 ou plus récent** : Open WebUI tourne dans une machine virtuelle basée sur le framework de virtualisation d'Apple.
 
 Ce que fait l'installeur, étape par étape (lisez [`install.sh`](install.sh) avant de le lancer) :
 1. Il vérifie que le Mac tourne sous macOS ≥ 12, est en x86_64, et dispose d'un GPU AMD et d'assez d'espace disque.
 2. Il télécharge le **paquet llama.cpp Vulkan précompilé** depuis les Releases GitHub de ce dépôt, **vérifie son empreinte SHA-256**, puis l'installe dans `~/.local/share/llama-vk/`.
 3. Il lance `llama-server --list-devices` pour confirmer que le GPU est bien visible via Vulkan.
 4. Il télécharge **Qwen 3.5 9B Q4_K_M** et son **module vision** depuis Hugging Face (`unsloth/Qwen3.5-9B-GGUF`, ~6,5 Go) dans `~/models/`.
-5. Avec `--full`, il installe aussi **Open WebUI** via [uv](https://docs.astral.sh/uv/). Si uv est absent, il lance l'installeur officiel d'Astral.
-   - Le **service de dictée Whisper** est alors installé lui aussi, puisqu'il réutilise le Python d'Open WebUI.
-   - Son modèle (~1,5 Go) est téléchargé à la première utilisation.
-   - Il reste à brancher Open WebUI dessus : voir [Dictée vocale](#dictée-vocale).
-6. Il installe les **LaunchAgents** (des services qui démarrent avec la session et redémarrent s'ils plantent), puis fait un contrôle de santé.
+5. Avec `--full`, il installe aussi :
+   - l'**environnement de dictée Whisper**, un environnement Python dédié créé avec [uv](https://docs.astral.sh/uv/). Si uv est absent, il lance l'installeur officiel d'Astral. Le modèle Whisper (~1,5 Go) est téléchargé à la première utilisation ;
+   - un **moteur Docker sans Docker Desktop** : Colima, Lima et le client Docker, tous en binaires officiels. Les empreintes de Colima et de Lima sont vérifiées ; pas de `sudo`, aucune licence à accepter.
+6. Il installe les **LaunchAgents** (des services qui démarrent avec la session et redémarrent s'ils plantent).
+7. Avec `--full`, il lance **Open WebUI depuis l'image Docker officielle** sur `127.0.0.1:3000`. L'image pèse ~6,5 Go au premier lancement. Voir [pourquoi Docker](#open-webui--pourquoi-docker-sur-mac-intel).
+8. Il fait un contrôle de santé.
 
 Options : `--full`, `--no-model`, `--no-service`.
 
@@ -79,25 +83,27 @@ Options : `--full`, `--no-model`, `--no-service`.
 | Moteur **Metal** de llama.cpp sur la Radeon | `kIOAccelCommandBufferCallbackErrorTimeout`, puis le moteur reste en erreur | ses kernels Metal reposent sur des fonctions propres aux GPU Apple (opérations matricielles simdgroup) |
 | Homebrew pour Vulkan (`vulkan-loader`, `shaderc`, `glslang`…) | tout est recompilé depuis les sources, Python compris (des heures) | pas de paquets précompilés x86_64 pour les macOS récents |
 | **llama.cpp Vulkan + MoltenVK** | ✅ **fonctionne, 6 à 10 fois plus rapide que le CPU** | MoltenVK traduit Vulkan vers Metal ; les kernels Vulkan génériques tournent bien sur AMD |
+| Open WebUI ≥ 0.8 installé en natif (pip/uv) | uv se rabat en silence sur la **0.7.2** | l'`onnxruntime` exigé (≥ 1.24) n'existe pas pour macOS x86_64 |
+| …en forçant des dépendances plus anciennes (onnxruntime 1.23.2, transformers 4.x, NumPy 1.26) | démarre, mais combinaison non testée par le projet | transformers 5 exige PyTorch ≥ 2.4, or PyTorch s'arrête à la 2.2.2 sur Mac Intel |
+| **Open WebUI en image Docker officielle** (Linux x86_64) | ✅ dépendances exactes du projet, même vitesse du LLM | voir [plus bas](#open-webui--pourquoi-docker-sur-mac-intel) |
 
 ## Architecture
 
 ```
-Navigateur ──► Open WebUI       127.0.0.1:3000   (optionnel, --full)
-                 │
-                 ├─► llama-server 127.0.0.1:8080  ── Vulkan ─► MoltenVK ─► Metal ─► Radeon
-                 │      API compatible OpenAI /v1, texte + vision
-                 │
-                 ├─► Whisper STT  127.0.0.1:8092  (optionnel, CPU, dictée)
+Navigateur ──► Open WebUI       127.0.0.1:3000   (optionnel, --full : image Docker officielle dans une VM Colima)
+                 │   via host.docker.internal → relayé par Lima vers le 127.0.0.1 du Mac
+                 ├─► llama-server 127.0.0.1:8080  ── Vulkan ─► MoltenVK ─► Metal ─► Radeon   (natif)
+                 │      API compatible OpenAI /v1, texte + vision, une requête à la fois
+                 ├─► Whisper STT  127.0.0.1:8092  (optionnel, natif, CPU, dictée)
                  └─► Ollama       127.0.0.1:11434 (optionnel, CPU, gestion des modèles)
 ```
 
 | LaunchAgent | Programme | Journaux |
 |---|---|---|
 | `com.llamacpp.vulkan` | `~/.local/share/llama-vk/bin/llama-server` | `~/Library/Logs/llama-vk/` |
-| `com.openwebui.serve` | `~/.local/bin/open-webui` | `~/Library/Logs/open-webui/` |
-| `com.whisper.stt` | `stt/whisper_server.py`, lancé avec le Python d'Open WebUI | `~/Library/Logs/whisper-stt/` |
-| `com.ollama.serve` | `~/.local/share/ollama-bin/ollama` | `~/Library/Logs/ollama/` |
+| `com.whisper.stt` | `stt/whisper_server.py`, lancé avec `~/.local/share/whisper-stt/venv` | `~/Library/Logs/whisper-stt/` |
+| `com.colima.start` | `~/.local/bin/colima start` : démarre la VM Docker à l'ouverture de session ; le conteneur `open-webui` redémarre ensuite seul (`--restart unless-stopped`) | `~/Library/Logs/colima/` |
+| `com.ollama.serve` | `~/.local/share/ollama-bin/ollama` (optionnel) | `~/Library/Logs/ollama/` |
 
 `scripts/install-services.sh` n'installe que les services dont le programme est présent. Les définitions des services sont des modèles dans [`launchd/`](launchd/), avec des marqueurs `__HOME__` et `__REPO__`.
 
@@ -160,10 +166,12 @@ Erreurs de compilation possibles et leurs correctifs (les deux sont déjà gér�
 Les options du service, dans [`launchd/com.llamacpp.vulkan.plist`](launchd/com.llamacpp.vulkan.plist) :
 
 ```
--ngl 99 -t 2 -tb 2 --poll 0 -c 32768 -fa on --jinja
+-ngl 99 -t 2 -tb 2 --poll 0 -c 32768 --parallel 1 -fa on --jinja
 --chat-template-kwargs '{"enable_thinking":false}'
---mmproj <module vision> --host 127.0.0.1 --port 8080
+--alias qwen3.5-9b-gpu --mmproj <module vision> --host 127.0.0.1 --port 8080
 ```
+
+Garder un alias **sans espace** : Open WebUI ≥ 0.13 refuse les identifiants de modèle contenant des espaces lorsqu'on crée ou surcharge un modèle.
 
 ### 1. CPU à ~670 % alors que le modèle est à 100 % sur le GPU
 
@@ -199,11 +207,27 @@ Sans plafond, Qwen 3.5 écrit de 1 300 à plus de 3 300 tokens de réflexion (2 
 
 Le modèle épuise presque toujours son budget : c'est donc le plafond qui fixe la latence.
 
-### 3. Pas de requêtes en parallèle sur ce GPU
+### 3. Une requête à la fois : `--parallel 1`
 
-Deux requêtes simultanées font tomber chacune à **~5 tok/s**, contre ~30 seule. Attention aux clients qui lancent des requêtes de fond : Open WebUI génère des titres, des tags et des suggestions ([voir plus bas](#configurer-open-webui)).
+Par défaut, llama-server ouvre 4 « slots » parallèles **et divise le contexte entre eux** : `-c 32768` ne laisse que 8 192 tokens par conversation.
 
-### 4. Chaleur
+Sur ce GPU, les requêtes simultanées s'effondrent. Mesure faite avec Open WebUI 0.13, dont les tâches de fond (titre, tags, suggestions) tournent **en même temps** que votre réponse :
+- **13 tok/s** en lecture, au lieu de ~270 ;
+- **0,3 tok/s** en écriture : une simple question a pris environ une minute.
+
+Avec `--parallel 1` :
+- les requêtes font la queue : deux requêtes simultanées tournent chacune à **29,5 tok/s**, la seconde attendant simplement la première ;
+- chaque conversation retrouve **tout le contexte de 32k**.
+
+### 4. « Outils intégrés » d'Open WebUI ≥ 0.12 : à désactiver
+
+Open WebUI active désormais **par défaut, sur tous les modèles**, des outils intégrés : recherche web, mémoire, notes, connaissances, compétences… Leur description est injectée **dans chaque requête**.
+
+Mesure : une question de 8 tokens partait avec un **contexte d'environ 7 900 tokens**, soit **40 à 45 s de lecture** sur ce GPU avant le premier mot. Outils coupés, la même question part avec **639 tokens**, et la réponse arrive en **~1,5 s**.
+- Par modèle : Espace de travail → Modèles → Capacités → décocher **Builtin Tools**.
+- Globalement : définir la variable d'environnement `DEFAULT_MODEL_METADATA='{"capabilities":{"builtin_tools":false}}'`. [`scripts/owui-docker.sh`](scripts/owui-docker.sh) le fait ; les réglages par modèle restent prioritaires.
+
+### 5. Chaleur
 
 Une longue réflexion maintient la Radeon à 100 % pendant plusieurs minutes, et les ventilateurs montent nettement. Ils redescendent 1 à 2 min après la dernière requête.
 
@@ -242,9 +266,34 @@ La réponse contient `timings` (`prompt_per_second`, `predicted_per_second`). Au
 
 Pour la vision, envoyer `content` sous forme de liste contenant `{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}`.
 
+## Open WebUI : pourquoi Docker sur Mac Intel
+
+Depuis la 0.8, une installation native d'Open WebUI ne fonctionne plus correctement sur Mac Intel :
+- l'`onnxruntime` qu'elle exige (≥ 1.24) **n'existe pas pour macOS x86_64** : `uv`/`pip` se rabattent en silence sur la **0.7.2** (janvier 2026) ;
+- en forçant des dépendances plus anciennes, la 0.13 démarre, mais `transformers` 5 exige **PyTorch ≥ 2.4**, qui **s'arrête à la 2.2.2 sur Mac Intel** ;
+- PyTorch 2.2.2 a été compilé pour **NumPy 1.x** : avec NumPy 2, les embeddings échouent (`RuntimeError: Numpy is not available`). **Même en 0.7.2, les embeddings de documents (RAG) sont cassés.**
+
+L'**image Docker officielle** tourne sous Linux x86_64, où toutes les dépendances existent : PyTorch 2.9, NumPy 2.5, onnxruntime 1.26, transformers 5.5. Mesures sur cette machine :
+
+| | 0.7.2 native | **0.13.3 Docker** |
+|---|---|---|
+| Génération du LLM (le conteneur appelle le llama-server natif) | 26,3-26,5 tok/s | **26,1-26,5 tok/s** (surcoût réseau ~0,02 s) |
+| Embeddings, 512 passages | cassés (NumPy 2 contre PyTorch 2.2) | **1,40 s** (CPU, VM) |
+| Conteneur au repos | — | 0,4 % de CPU, ~1 Go de RAM |
+
+**Réseau.** Depuis le conteneur, `host.docker.internal` (192.168.5.2) atteint le **127.0.0.1 du Mac** : Lima relaie le trafic. llama-server, Whisper et Ollama restent donc en boucle locale. Dans Open WebUI, utiliser `http://host.docker.internal:8080/v1` pour le LLM et `http://host.docker.internal:8092/v1` pour la dictée, jamais `127.0.0.1`, qui dans un conteneur désigne le conteneur lui-même.
+
+**Lancer / mettre à jour :**
+```bash
+scripts/owui-docker.sh            # crée le conteneur (127.0.0.1:3000, données dans ~/.local/share/open-webui-docker)
+scripts/owui-docker.sh v0.13.4    # mise à jour : nouvelle image, mêmes données
+```
+
+**Migrer depuis une installation native** : copier `webui.db` avec l'API de sauvegarde de SQLite (cohérente même en fonctionnement), ainsi que les dossiers `uploads/` et `vector_db/`, dans le dossier de données Docker. Corriger l'URL de dictée en `host.docker.internal`, puis réutiliser la même `WEBUI_SECRET_KEY`. Une migration 0.7.2 → 0.13.3 a appliqué 43 migrations de schéma sans erreur ; modèles, prompts, réglages et conversations ont tous été conservés.
+
 ## Configurer Open WebUI
 
-Ajouter llama-server comme connexion OpenAI (`--full` le fait via des variables d'environnement) : `OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1`.
+`--full` branche automatiquement llama-server : `OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1`. Il coupe aussi les outils intégrés par défaut.
 
 Puis configurer, dans cet ordre :
 1. **Deux modèles sur la même base**, dans Espace de travail → Modèles → Nouveau :
@@ -260,9 +309,9 @@ Puis configurer, dans cet ordre :
 - Le rapport de plantage macOS montre `libiomp5.dylib __kmp_suspend_64` dans le thread fautif.
 - `ctranslate2` (faster-whisper) charge `libiomp5` d'Intel, et PyTorch charge `libomp` de LLVM. Deux runtimes OpenMP dans le même processus finissent par planter.
 
-Le correctif : [`stt/whisper_server.py`](stt/whisper_server.py) fait tourner faster-whisper **dans son propre processus** (sans PyTorch), avec une API compatible OpenAI (`POST /v1/audio/transcriptions`) sur `127.0.0.1:8092`.
+Le correctif : [`stt/whisper_server.py`](stt/whisper_server.py) fait tourner faster-whisper **dans son propre processus**, sans PyTorch, avec une API compatible OpenAI (`POST /v1/audio/transcriptions`) sur `127.0.0.1:8092`. Il tourne en natif, dans un environnement dédié : [`scripts/setup-stt.sh`](scripts/setup-stt.sh), dans `~/.local/share/whisper-stt/venv`.
 
-Pour le brancher sur Open WebUI : Réglages admin → Audio → moteur STT **OpenAI**, URL `http://127.0.0.1:8092/v1`, une clé API quelconque, modèle `large-v3-turbo`.
+Pour le brancher sur Open WebUI : Réglages admin → Audio → moteur STT **OpenAI**, URL `http://host.docker.internal:8092/v1` (Docker ; `http://127.0.0.1:8092/v1` pour un Open WebUI natif), une clé API quelconque, modèle `large-v3-turbo`.
 
 Résultats sur une vraie dictée (en français, avec des sigles métier, sur le CPU pour laisser le GPU au LLM) :
 
@@ -286,19 +335,25 @@ Après modification de l'un de ces fichiers, recharger le service : `launchctl k
 | `ggml_vulkan: WARNING: Instance extension VK_KHR_portability_enumeration not found` / `[mvk-warn] … robustness` | avertissements d'information de MoltenVK | sans conséquence |
 | `Bootstrap failed: 5: Input/output error` en réinstallant un service | `launchctl bootout` est asynchrone | attendre que `launchctl print gui/$UID/<label>` échoue, puis relancer le bootstrap (`install-services.sh` le fait) |
 | Réponse vide avec un petit `max_tokens` | le brouillon de réflexion a consommé tout le budget | réflexion coupée par défaut, et plafonnée avec `reasoning_budget_tokens` |
-| Réponses très lentes, ~5 tok/s | requêtes simultanées (tâches de fond d'Open WebUI) | régler le modèle de tâche d'Open WebUI sur « rapide » ; vérifier `GET /slots` |
+| Réponses très lentes, ~5 tok/s ou moins | requêtes simultanées (tâches de fond d'Open WebUI) et 4 slots parallèles | `--parallel 1` ; régler le modèle de tâche d'Open WebUI sur « rapide » ; vérifier `GET /slots` |
+| 40 s ou plus avant le premier mot, même pour « bonjour » (Open WebUI ≥ 0.12) | outils intégrés injectés dans chaque requête (~7 900 tokens) | décocher Builtin Tools par modèle, ou `DEFAULT_MODEL_METADATA='{"capabilities":{"builtin_tools":false}}'` |
+| Open WebUI ≥ 0.8 ne s'installe pas en natif ; uv installe la 0.7.2 | pas de paquets macOS x86_64 pour ses dépendances | utiliser l'image Docker officielle (`scripts/owui-docker.sh`) |
+| `String should match pattern '^\S+$'` en modifiant un modèle | identifiant de modèle avec espaces (`--alias` de llama-server) | utiliser un alias sans espace, par exemple `qwen3.5-9b-gpu` |
+| Open WebUI (Docker) n'atteint pas le LLM ni la dictée | `127.0.0.1` dans un conteneur désigne le conteneur lui-même | utiliser `http://host.docker.internal:<port>` |
+| `Response payload is not completed: TransferEncodingError` | llama-server redémarré ou tué en pleine réponse | renvoyer la question ; consulter `~/Library/Logs/llama-vk/` |
 | CPU ~700 % pendant la génération | attente active en boucle | `-t 2 -tb 2 --poll 0` |
 | Open WebUI redémarre quand on dicte | conflit OpenMP dans son Whisper intégré | utiliser le service de dictée séparé |
 | Micro « refusé » dans un navigateur intégré | certains navigateurs intégrés bloquent `getUserMedia` | utiliser Safari ou Chrome sur `http://localhost:3000` (localhost est considéré comme sûr) |
 | `warmup: the mmproj graph uses unsupported operators by the backend` | quelques opérations du module vision n'ont pas de kernel Vulkan | sans conséquence : ces opérations basculent sur le CPU, et les images fonctionnent (~5 s) |
 
-Journaux : `~/Library/Logs/{llama-vk,open-webui,whisper-stt,ollama}/`. Contrôle de l'état : `~/.local/share/llm-local-intel-mac-amd/scripts/healthcheck.sh`.
+Journaux : `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` et `docker logs open-webui`. Contrôle de l'état : `~/.local/share/llm-local-intel-mac-amd/scripts/healthcheck.sh`.
 
 ## Enseignements
 
 1. **Mesurer plutôt que supposer.** L'installation par défaut de chaque outil passait à côté du matériel réel : CPU seul, mauvaise version de macOS ciblée, dépendance cachée à Homebrew, threads en attente active.
 2. **Le vrai goulot, c'est la bande passante mémoire.** Choisir un modèle qui tient entièrement en VRAM, en dimensionnant aussi son cache KV.
-3. **Un petit modèle invente les faits métier avec aplomb.**
+3. **Tester la vitesse d'une vraie question dans l'interface, pas seulement que « ça marche ».** La montée en Open WebUI 0.13 passait tous les tests fonctionnels, mais chaque question avait pris ~40 s de plus, à cause des outils intégrés et des tâches de fond simultanées.
+4. **Un petit modèle invente les faits métier avec aplomb.**
    - Sur une phrase parfaitement transcrite à propos de sigles du numérique en santé (INS, DNS), un modèle de 9B en a développé deux de travers et en a inventé un troisième, inexistant.
    - Un **glossaire et une règle « ne jamais inventer de sigle »** dans le prompt système ont réglé le problème : les définitions sont devenues justes, et sur un sigle inconnu le modèle **s'abstient** au lieu d'inventer.
    - Au-delà des sigles, pour le fond, utiliser une base documentaire (RAG) sur les documents de référence. La recherche elle-même est quasi instantanée ; le coût vient des tokens de prompt supplémentaires (~270 tok/s ici).
@@ -306,8 +361,8 @@ Journaux : `~/Library/Logs/{llama-vk,open-webui,whisper-stt,ollama}/`. Contrôle
 ## Désinstallation
 
 ```bash
-~/.local/share/llm-local-intel-mac-amd/uninstall.sh            # services + binaires (conserve les modèles et les données d'Open WebUI)
-~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # supprime aussi Open WebUI, ses données et le modèle par défaut
+~/.local/share/llm-local-intel-mac-amd/uninstall.sh            # services, binaires, conteneur Open WebUI (conserve modèles, données, VM Colima)
+~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # supprime aussi la VM Colima + outils Docker, les données d'Open WebUI et le modèle par défaut
 ```
 
 ## Licence

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Check the 4 services and time a short answer on the GPU.
+# Check the services and time a short answer on the GPU.
 set -u
 ok(){ printf '  %-28s %s\n' "$1" "$2"; }
 echo "Services:"
 ok "Ollama (11434)"        "$(curl -s -m3 127.0.0.1:11434/api/version || echo KO)"
 ok "llama.cpp GPU (8080)"  "$(curl -s -m3 127.0.0.1:8080/health || echo KO)"
-ok "Open WebUI (3000)"     "$(curl -s -m3 127.0.0.1:3000/health || echo KO)"
+ok "Open WebUI (3000)"     "$(curl -s -m3 127.0.0.1:3000/health || echo KO) $(curl -s -m3 127.0.0.1:3000/api/version || true)"
+ok "Docker container"      "$(PATH=$HOME/.local/bin:$PATH docker ps --filter name=open-webui --format '{{.Status}}' 2>/dev/null || echo KO)"
 ok "Whisper STT (8092)"    "$(curl -s -m3 127.0.0.1:8092/health || echo KO)"
 echo "Listening sockets (must be 127.0.0.1 only):"
 lsof -nP -iTCP -sTCP:LISTEN | awk '/:(3000|8080|8092|11434) /{print "  "$1, $9}'

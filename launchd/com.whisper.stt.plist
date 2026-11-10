@@ -3,7 +3,7 @@
 <plist version="1.0"><dict>
  <key>Label</key><string>com.whisper.stt</string>
  <key>ProgramArguments</key><array>
-  <string>__HOME__/.local/share/uv/tools/open-webui/bin/python</string>
+  <string>__HOME__/.local/share/whisper-stt/venv/bin/python</string>
   <string>-I</string>
   <string>__REPO__/stt/whisper_server.py</string>
  </array>
