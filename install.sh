@@ -3,10 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --full      # + Open WebUI (Docker) + Whisper dictation
+#   curl -fsSL .../install.sh | bash -s -- --full --gemma   # + Gemma 4 E4B and 12B (QAT 4-bit, ~12 GB)
 #
 # Options:
 #   --full          also install Open WebUI (official Docker image, via Colima) and Whisper dictation
 #   --no-model      do not download the default model (Qwen 3.5 9B Q4_K_M + vision, ~6.5 GB)
+#   --gemma         also download Gemma 4 E4B and Gemma 4 12B (Google QAT Q4_0, text only, ~12 GB)
 #   --no-service    install files only, do not create/start LaunchAgents
 #
 # Everything goes under your home directory; nothing needs sudo.
@@ -21,15 +23,18 @@ SRC_URL="${LLM_LOCAL_SRC_URL:-https://github.com/$REPO/archive/$REF.tar.gz}"   #
 HF="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main"
 MODEL="Qwen3.5-9B-Q4_K_M.gguf"
 MMPROJ="mmproj-F16.gguf"
+# Gemma 4, Google's official QAT 4-bit builds (served by the same router, one model at a time)
+GEMMA_E4B_URL="https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf"
+GEMMA_12B_URL="https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf"
 
 APP="$HOME/.local/share/llm-local-intel-mac-amd"   # repo files (templates, STT service)
 BIN="$HOME/.local/share/llama-vk"                   # llama.cpp binaries
 MODELS="$HOME/models"
 
-FULL=0; WITH_MODEL=1; WITH_SERVICE=1
+FULL=0; WITH_MODEL=1; WITH_SERVICE=1; GEMMA=0
 for a in "$@"; do case "$a" in
-  --full) FULL=1 ;; --no-model) WITH_MODEL=0 ;; --no-service) WITH_SERVICE=0 ;;
-  -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+  --full) FULL=1 ;; --no-model) WITH_MODEL=0 ;; --no-service) WITH_SERVICE=0 ;; --gemma) GEMMA=1 ;;
+  -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
   *) echo "unknown option: $a" >&2; exit 2 ;;
 esac; done
 
@@ -47,7 +52,8 @@ VRAM="$(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/VRAM/{prin
 echo "macOS $(sw_vers -productVersion) | GPU: ${GPU:-unknown} | VRAM: ${VRAM:-unknown}"
 case "$GPU" in *AMD*|*Radeon*) ;; *) echo "Warning: no AMD GPU detected; llama.cpp will fall back to the CPU." ;; esac
 FREE_GB="$(df -g "$HOME" | awk 'NR==2{print $4}')"
-[ "$FREE_GB" -ge 10 ] || die "At least 10 GB of free disk space is needed (found ${FREE_GB} GB)."
+NEED_GB=10; [ "$GEMMA" = 1 ] && NEED_GB=23
+[ "$FREE_GB" -ge "$NEED_GB" ] || die "At least ${NEED_GB} GB of free disk space is needed (found ${FREE_GB} GB)."
 
 # --- 2. Repo files (templates, STT service) -----------------------------------
 say "Fetching configuration files ($REPO@$REF)"
@@ -83,6 +89,15 @@ if [ "$WITH_MODEL" = 1 ]; then
     curl -fL --progress-bar -C - -o "$dest.part" "$HF/$f" && mv "$dest.part" "$dest"
   done
 fi
+if [ "$GEMMA" = 1 ]; then
+  say "Downloading Gemma 4 E4B and Gemma 4 12B (Google QAT Q4_0, ~12 GB)"
+  mkdir -p "$MODELS"
+  for pair in "$GEMMA_E4B_URL gemma-4-e4b-it-qat-q4_0.gguf" "$GEMMA_12B_URL gemma-4-12b-it-qat-q4_0.gguf"; do
+    set -- $pair; dest="$MODELS/$2"
+    if [ -s "$dest" ]; then echo "already present: $dest"; continue; fi
+    curl -fL --progress-bar -C - -o "$dest.part" "$1" && mv "$dest.part" "$dest"
+  done
+fi
 
 # --- 5. Optional (--full): Whisper STT environment + Docker runtime ------------
 if [ "$FULL" = 1 ]; then
@@ -116,7 +131,7 @@ if [ "$WITH_SERVICE" = 1 ]; then
 fi
 
 say "Done"
-echo "llama.cpp API (OpenAI-compatible): http://127.0.0.1:8080/v1"
+echo "llama.cpp API (OpenAI-compatible): http://127.0.0.1:8080/v1   (models: curl -s 127.0.0.1:8080/v1/models)"
 [ "$FULL" = 1 ] && echo "Chat UI: http://localhost:3000  (first account created = admin)"
 echo "Docs / tuning / troubleshooting: https://github.com/$REPO"
 echo "Uninstall: $APP/uninstall.sh"

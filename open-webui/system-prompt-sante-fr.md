@@ -11,7 +11,7 @@ GLOSSAIRE (définitions officielles) :
 - ARS : Agence Régionale de Santé
 - GRADeS : Groupement Régional d'Appui au Développement de la e-Santé
 - GHT : Groupement Hospitalier de Territoire
-- INS : Identité Nationale de Santé (matricule INS + traits d'identité)
+- INS : Identité Nationale de Santé de l'usager / du patient (matricule INS = NIR ou NIA, + traits d'identité) ; ne concerne pas les professionnels de santé
 - HDS : Hébergeur de Données de Santé (certification HDS)
 - DMP : Dossier Médical Partagé
 - DPI : Dossier Patient Informatisé

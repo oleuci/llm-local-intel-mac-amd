@@ -8,6 +8,8 @@ Ollama, LM Studio et la plupart des outils « clé en main » **ignorent les GPU
 - un **paquet précompilé et relocalisable**, avec un installeur en une ligne ;
 - des **scripts pour tout compiler soi-même**, sans Xcode ni Homebrew.
 
+Trois modèles sont servis derrière une seule adresse compatible OpenAI (**mode routeur** de llama.cpp, un seul modèle sur le GPU à la fois) : **Qwen 3.5 9B** avec la vision et, en option, **Gemma 4 E4B** et **Gemma 4 12B** (versions QAT 4 bits officielles de Google).
+
 > **Statut :** éprouvé sur une seule machine (voir ci-dessous). Tout ce qui est écrit ici a été mesuré, pas supposé. Les résultats varieront avec d'autres GPU. Les retours (issues) sont bienvenus.
 
 ---
@@ -26,9 +28,10 @@ Ollama, LM Studio et la plupart des outils « clé en main » **ignorent les GPU
 10. [Open WebUI : pourquoi Docker sur Mac Intel](#open-webui--pourquoi-docker-sur-mac-intel)
 11. [Configurer Open WebUI](#configurer-open-webui)
 12. [Dictée vocale](#dictée-vocale)
-13. [Dépannage](#dépannage)
-14. [Enseignements](#enseignements)
-15. [Désinstallation](#désinstallation) · [Licence](#licence)
+13. [Génération d'images (optionnelle, testée puis désinstallée)](#génération-dimages-optionnelle)
+14. [Dépannage](#dépannage)
+15. [Enseignements](#enseignements)
+16. [Désinstallation](#désinstallation) · [Licence](#licence)
 
 ---
 
@@ -43,7 +46,15 @@ Mesures faites avec `llama-bench` sur Qwen 3.5 9B, Q4_K_M (5,2 Go) :
 | **Vulkan / MoltenVK, Radeon Pro 5700 XT** | **~270-286 tok/s** | **~30-35 tok/s** |
 | CPU seul, 8 threads (AVX2) | 28 tok/s | 4,7 tok/s |
 
-En conversation réelle, via le serveur, la génération tourne à **~26-30 tok/s**. `llama-bench` est un cas idéal : pas de gabarit de conversation, pas d'échantillonnage, contexte vide. Une réponse courte arrive en **~1 à 1,5 s**. La description d'une image (module vision chargé) prend **~5 s**.
+Via le serveur, en conversation réelle (avec les [réglages](#réglages-mesurés) ci-dessous, notamment `fa = auto`) :
+
+| Modèle (4 bits) | Génération | Lecture du prompt | Remarques |
+|---|---:|---:|---|
+| **Qwen 3.5 9B** Q4_K_M + vision | **~30-33 tok/s** | ~225-250 tok/s | lit une capture d'écran pleine page (1 024 tokens d'image) en ~20-25 s |
+| **Gemma 4 E4B** QAT Q4_0 | **~44 tok/s** | ~500 tok/s | le plus rapide |
+| **Gemma 4 12B** QAT Q4_0 | **~24 tok/s** | ~130 tok/s | le plus capable |
+
+`llama-bench` est un cas idéal : pas de gabarit de conversation, pas d'échantillonnage, contexte vide. Une réponse courte arrive en **~1 à 1,5 s**. Passer à un autre modèle prend **5 à 12 s** au premier message (chargement depuis le cache disque).
 
 ## Installation rapide
 
@@ -57,6 +68,9 @@ curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main
 
 # Pile complète : + Open WebUI (image Docker officielle, chat sur http://localhost:3000) + dictée
 curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash -s -- --full
+
+# Idem, plus Gemma 4 E4B et Gemma 4 12B (QAT 4 bits de Google, ~12 Go de plus)
+curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash -s -- --full --gemma
 ```
 
 `--full` exige **macOS 13 ou plus récent** : Open WebUI tourne dans une machine virtuelle basée sur le framework de virtualisation d'Apple.
@@ -65,15 +79,15 @@ Ce que fait l'installeur, étape par étape (lisez [`install.sh`](install.sh) av
 1. Il vérifie que le Mac tourne sous macOS ≥ 12, est en x86_64, et dispose d'un GPU AMD et d'assez d'espace disque.
 2. Il télécharge le **paquet llama.cpp Vulkan précompilé** depuis les Releases GitHub de ce dépôt, **vérifie son empreinte SHA-256**, puis l'installe dans `~/.local/share/llama-vk/`.
 3. Il lance `llama-server --list-devices` pour confirmer que le GPU est bien visible via Vulkan.
-4. Il télécharge **Qwen 3.5 9B Q4_K_M** et son **module vision** depuis Hugging Face (`unsloth/Qwen3.5-9B-GGUF`, ~6,5 Go) dans `~/models/`.
+4. Il télécharge **Qwen 3.5 9B Q4_K_M** et son **module vision** depuis Hugging Face (`unsloth/Qwen3.5-9B-GGUF`, ~6,5 Go) dans `~/models/`. Avec `--gemma`, il télécharge aussi les versions officielles QAT Q4_0 de **Gemma 4 E4B** et **Gemma 4 12B** publiées par Google (~12 Go ; 23 Go d'espace libre nécessaires).
 5. Avec `--full`, il installe aussi :
    - l'**environnement de dictée Whisper**, un environnement Python dédié créé avec [uv](https://docs.astral.sh/uv/). Si uv est absent, il lance l'installeur officiel d'Astral. Le modèle Whisper (~1,5 Go) est téléchargé à la première utilisation ;
    - un **moteur Docker sans Docker Desktop** : Colima, Lima et le client Docker, tous en binaires officiels. Les empreintes de Colima et de Lima sont vérifiées ; pas de `sudo`, aucune licence à accepter.
-6. Il installe les **LaunchAgents** (des services qui démarrent avec la session et redémarrent s'ils plantent).
+6. Il installe les **LaunchAgents** (des services qui démarrent avec la session et redémarrent s'ils plantent). Le service llama.cpp tourne en **mode routeur** et ne liste que les modèles réellement téléchargés.
 7. Avec `--full`, il lance **Open WebUI depuis l'image Docker officielle** sur `127.0.0.1:3000`. L'image pèse ~6,5 Go au premier lancement. Voir [pourquoi Docker](#open-webui--pourquoi-docker-sur-mac-intel).
 8. Il fait un contrôle de santé.
 
-Options : `--full`, `--no-model`, `--no-service`.
+Options : `--full`, `--gemma`, `--no-model`, `--no-service`.
 
 ## Ce qui n'a *pas* marché (inutile de réessayer)
 
@@ -93,19 +107,20 @@ Options : `--full`, `--no-model`, `--no-service`.
 Navigateur ──► Open WebUI       127.0.0.1:3000   (optionnel, --full : image Docker officielle dans une VM Colima)
                  │   via host.docker.internal → relayé par Lima vers le 127.0.0.1 du Mac
                  ├─► llama-server 127.0.0.1:8080  ── Vulkan ─► MoltenVK ─► Metal ─► Radeon   (natif)
-                 │      API compatible OpenAI /v1, texte + vision, une requête à la fois
+                 │      ROUTEUR : qwen3.5-9b-gpu (texte + vision) | gemma-4-e4b | gemma-4-12b
+                 │      API compatible OpenAI /v1, un modèle sur le GPU et une requête à la fois
                  ├─► Whisper STT  127.0.0.1:8092  (optionnel, natif, CPU, dictée)
                  └─► Ollama       127.0.0.1:11434 (optionnel, CPU, gestion des modèles)
 ```
 
 | LaunchAgent | Programme | Journaux |
 |---|---|---|
-| `com.llamacpp.vulkan` | `~/.local/share/llama-vk/bin/llama-server` | `~/Library/Logs/llama-vk/` |
+| `com.llamacpp.vulkan` | `~/.local/share/llama-vk/bin/llama-server --models-preset …/models.ini --models-max 1` (routeur) | `~/Library/Logs/llama-vk/` |
 | `com.whisper.stt` | `stt/whisper_server.py`, lancé avec `~/.local/share/whisper-stt/venv` | `~/Library/Logs/whisper-stt/` |
 | `com.colima.start` | `~/.local/bin/colima start` : démarre la VM Docker à l'ouverture de session ; le conteneur `open-webui` redémarre ensuite seul (`--restart unless-stopped`) | `~/Library/Logs/colima/` |
 | `com.ollama.serve` | `~/.local/share/ollama-bin/ollama` (optionnel) | `~/Library/Logs/ollama/` |
 
-`scripts/install-services.sh` n'installe que les services dont le programme est présent. Les définitions des services sont des modèles dans [`launchd/`](launchd/), avec des marqueurs `__HOME__` et `__REPO__`.
+`scripts/install-services.sh` n'installe que les services dont le programme est présent. Les définitions des services sont des modèles dans [`launchd/`](launchd/), avec des marqueurs `__HOME__` et `__REPO__`. Le script produit aussi `~/.local/share/llama-vk/models.ini` à partir de [`llama/models.ini`](llama/models.ini), en retirant les modèles dont le fichier est absent.
 
 ## Le paquet précompilé
 
@@ -163,15 +178,30 @@ Erreurs de compilation possibles et leurs correctifs (les deux sont déjà gér�
 
 ## Réglages (mesurés)
 
-Les options du service, dans [`launchd/com.llamacpp.vulkan.plist`](launchd/com.llamacpp.vulkan.plist) :
+Tous les réglages sont dans [`llama/models.ini`](llama/models.ini), commentés. Les réglages communs sont dans la section `[*]`, puis vient une section par modèle, dont le nom est l'identifiant du modèle :
 
-```
--ngl 99 -t 2 -tb 2 --poll 0 -c 32768 --parallel 1 -fa on --jinja
---chat-template-kwargs '{"enable_thinking":false}'
---alias qwen3.5-9b-gpu --mmproj <module vision> --host 127.0.0.1 --port 8080
+```ini
+[*]
+ngl = 99, t = 2, tb = 2, poll = 0, c = 32768, parallel = 1, fa = auto, jinja = true, ub = 128
+[qwen3.5-9b-gpu]   mmproj, image-max-tokens = 1024, enable_thinking false, temp 0.7 / top-p 0.8 / top-k 20 / presence 1.5
+[gemma-4-e4b]      enable_thinking false, temp 1.0 / top-p 0.95 / top-k 64
+[gemma-4-12b]      enable_thinking false, temp 1.0 / top-p 0.95 / top-k 64
 ```
 
-Garder un alias **sans espace** : Open WebUI ≥ 0.13 refuse les identifiants de modèle contenant des espaces lorsqu'on crée ou surcharge un modèle.
+(Le bloc ci-dessus est un résumé ; le vrai fichier a une clé par ligne.)
+
+Garder des identifiants de modèle **sans espace** : Open WebUI ≥ 0.13 refuse les identifiants contenant des espaces lorsqu'on crée ou surcharge un modèle.
+
+### 0. `fa = auto`, jamais `fa = on` : le plus gros gain
+
+La flash attention **n'existe pas via Vulkan/MoltenVK sur ce GPU**. `-fa on` n'échoue pas : llama.cpp fait alors tourner l'attention **sur le CPU**, sans prévenir autrement que par un avertissement (`layer N is assigned to device Vulkan0 but Flash Attention is assigned to device CPU`). Avec `auto`, elle est simplement désactivée et tout reste sur le GPU :
+
+| Même modèle, mêmes requêtes | Génération | Lecture du prompt |
+|---|---:|---:|
+| `-fa on` | 25,6 tok/s | 170 tok/s |
+| **`-fa auto`** | **32,7 tok/s (+28 %)** | **248 tok/s (+46 %)** |
+
+C'est pire avec un module vision. Sous `-fa on`, l'encodeur d'image tourne aussi sur le CPU : une capture d'écran prenait **~110 s au lieu de ~20 s**.
 
 ### 1. CPU à ~670 % alors que le modèle est à 100 % sur le GPU
 
@@ -231,6 +261,62 @@ Mesure : une question de 8 tokens partait avec un **contexte d'environ 7 900 tok
 
 Une longue réflexion maintient la Radeon à 100 % pendant plusieurs minutes, et les ventilateurs montent nettement. Ils redescendent 1 à 2 min après la dernière requête.
 
+### 6. Garder le Mac utilisable : `ub = 128`
+
+macOS ne permet pas de régler une priorité GPU pour le calcul. Pendant que llama.cpp lit un prompt, chaque micro-lot est un long bloc de travail GPU, et le WindowServer doit l'attendre : **l'affichage se fige**.
+
+| `ub` (micro-lot) | Lecture du prompt | GPU occupé par bloc |
+|---|---:|---:|
+| 512 (défaut) | 249 tok/s | ~2 s |
+| 256 | 238 tok/s | ~1,1 s |
+| **128** | **224 tok/s** | **~0,6 s** |
+
+La génération n'est pas touchée (~27 tok/s dans les trois cas). La vision de Qwen garde son budget complet de 1 024 tokens avec `ub = 128`.
+
+### 7. Plusieurs modèles, un seul GPU : le mode routeur
+
+`llama-server` lancé **sans modèle** devient un routeur : `--models-preset models.ini --models-max 1`.
+- `GET /v1/models` liste tous les modèles déclarés, avec leur état.
+- Chaque requête est aiguillée selon son champ `"model"`. Le routeur démarre le processus `llama-server` de ce modèle et arrête le précédent.
+- Une bascule coûte 5 à 12 s ; ensuite, le modèle tourne à pleine vitesse.
+- Open WebUI voit tous les modèles automatiquement.
+
+Une carte de 16 Go ne peut pas tenir trois modèles à la fois, d'où `--models-max 1`.
+
+### 8. Vision : le budget de tokens par image
+
+Le nombre de tokens qu'une image peut occuper compte plus que la taille du modèle :
+- **Qwen 3.5** : `image-max-tokens = 1024`.
+  - Au-delà, une opération de l'encodeur d'image (un softmax sur ~8 000 patchs) n'a pas de kernel Vulkan et bascule sur le CPU : ~260 s par image.
+  - À 768, les chiffres commencent à être mal lus (3,04 au lieu de 3,06).
+- **Gemma 4** encode toute l'image dans **un seul micro-lot** (attention non causale). L'image est donc plafonnée en silence à `ub` (`cap image_max_tokens … to 512 (n_ubatch = 512)`).
+  - **E4B** a besoin de `ub = 1152` pour lire correctement une page dense. Le GPU est alors bloqué ~2 s à chaque fois, voir §6.
+  - **12B** : avec `ub > 512`, son encodeur d'image **renvoie des valeurs fausses** sous Vulkan (il a lu 74,34 au lieu de 97,34). Rester à 512.
+- D'où le choix par défaut ici : **Qwen est le modèle vision**, et les Gemma sont en texte seul. Réactiver leur vision tient en une ligne chacun dans `models.ini`.
+
+### 9. Le 4 bits suffit (et le QAT de Gemma est fait pour)
+
+Les mêmes requêtes, mesurées avec des versions 6 et 8 bits :
+
+| Modèle | 4 bits | 6-8 bits | Coût en vitesse | Différence de qualité constatée |
+|---|---|---|---:|---|
+| Qwen 3.5 9B | Q4_K_M 5,7 Go | Q6_K 7,5 Go | −21 % | aucune sur nos vérifications |
+| Gemma 4 E4B | QAT Q4_0 5,2 Go | Q8_0 8,0 Go | ~−20 % | aucune visible |
+
+La génération est limitée par la bande passante mémoire : un fichier plus gros coûte de la vitesse presque proportionnellement. Les versions **QAT** de Google sont ré-entraînées pour bien fonctionner en 4 bits ; inutile de chercher un « QAT Q6 ».
+
+### 10. Gemma 4 réfléchit par défaut
+
+Sans `enable_thinking: false`, Gemma 4 E4B et 12B écrivent 600 à 750 caractères de réflexion cachée avant chaque réponse. Coupez-la dans leur section, comme pour Qwen, et réactivez-la requête par requête.
+
+### 11. Testé, puis écarté
+
+| Piste | Résultat |
+|---|---|
+| Têtes de prédiction MTP de Gemma 4 (`--spec-type draft-mtp` + `mtp-*.gguf` de ggml-org) | **0 à 0,3 % des propositions acceptées**, génération **divisée par 2,5** (ex. 42,9 → 16,4 tok/s) |
+| `--swa-full` pour Gemma | aucun gain : le llama.cpp actuel ne relit déjà que le nouveau tour (17 à 100 tokens). La lecture du prompt est plus lente. |
+| Q6_K / Q8_0 | voir §9 |
+
 ## Choisir un modèle / dimensionner la VRAM
 
 **Vitesse de génération ≈ débit mémoire effectif ÷ octets de poids actifs relus par token.**
@@ -240,14 +326,15 @@ Une longue réflexion maintient la Radeon à 100 % pendant plusieurs minutes, et
 
 | Classe de modèle | Tient dans 16 Go de VRAM ? | Génération attendue |
 |---|---|---|
-| Dense ≤ 9B (Q4 ≈ 5-6 Go) | ✅ avec un grand contexte | ~30-35 tok/s (mesuré pour Qwen 3.5 9B) |
-| Dense 12-14B (Q4 ≈ 7-9 Go) | ✅, le contexte devient plus serré | ~20 tok/s (estimation) |
+| Dense ≤ 9B (Q4 ≈ 5-6 Go) | ✅ avec un grand contexte | ~30-35 tok/s (mesuré : Qwen 3.5 9B) |
+| Gemma 4 E4B (QAT Q4_0, 5,2 Go, ~4B actifs) | ✅ | **~44 tok/s** (mesuré) |
+| Dense 12-14B (Q4 ≈ 7-9 Go) | ✅, le contexte devient plus serré | **~24 tok/s** (mesuré : Gemma 4 12B QAT) |
 | Dense ≥ 27B | ❌ déchargement partiel | lent |
 | Gros MoE (100B+, ~5-6B actifs) avec experts en RAM (`--n-cpu-moe`) | poids en RAM | **~5-8 tok/s (estimation)** : traitements par lots seulement |
 
 **Le cache KV compte autant que les poids :**
 - **Qwen 3.5 est hybride** : une couche sur quatre seulement utilise l'attention complète (les autres apparaissent en `filtered` dans le journal). Un contexte de 32k coûte donc peu, et le cache de prompt est réutilisé d'un tour à l'autre.
-- Les modèles **Gemma** utilisent une attention à fenêtre glissante. Le cache SWA compact par défaut tient en mémoire, mais llama.cpp doit alors relire tout l'historique à chaque tour (`forcing full prompt re-processing due to SWA`). `--swa-full` évite cela, mais coûte beaucoup plus de VRAM. Sur 16 Go, Gemma convient mieux aux échanges courts qu'aux longues conversations.
+- Les modèles **Gemma** utilisent une attention à fenêtre glissante. Avec le cache SWA compact, les anciennes versions de llama.cpp relisaient tout l'historique à chaque tour. La version actuelle (celle du mode routeur) garde des points de reprise : mesuré, au 2ᵉ tour d'une conversation de 4 300 tokens, seuls **17 à 100 tokens** ont été relus. `--swa-full` n'est plus nécessaire.
 
 ## Utiliser l'API
 
@@ -259,10 +346,13 @@ curl -s http://127.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/
   "max_tokens": 200 }'
 ```
 
+En mode routeur, **`"model"` est obligatoire** (`qwen3.5-9b-gpu`, `gemma-4-e4b`, `gemma-4-12b`). Sans lui, le serveur répond HTTP 400 `model name is missing from the request`.
+
 La réponse contient `timings` (`prompt_per_second`, `predicted_per_second`). Autres points d'accès utiles :
 - `GET /health` ;
-- `GET /slots` : ce qui tourne en ce moment ;
-- `GET /v1/models`.
+- `GET /v1/models` : tous les modèles et leur état (`loaded` / `unloaded`) ;
+- `POST /models/unload` avec `{"model": "…"}` : libère le GPU ;
+- `GET /slots?model=…` : ce qui tourne en ce moment.
 
 Pour la vision, envoyer `content` sous forme de liste contenant `{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}`.
 
@@ -295,8 +385,8 @@ scripts/owui-docker.sh v0.13.4    # mise à jour : nouvelle image, mêmes donné
 
 `--full` branche automatiquement llama-server : `OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1`. Il coupe aussi les outils intégrés par défaut.
 
-Puis configurer, dans cet ordre :
-1. **Deux modèles sur la même base**, dans Espace de travail → Modèles → Nouveau :
+Tous les modèles du routeur apparaissent automatiquement dans le sélecteur. Puis configurer, dans cet ordre :
+1. **Deux modèles sur la même base**, dans Espace de travail → Modèles → Nouveau. À refaire pour chaque base voulue, par exemple un « rapide » sur `gemma-4-e4b` :
    - **« rapide »** : Paramètres avancés → paramètre personnalisé `chat_template_kwargs` = `{"enable_thinking": false}` ;
    - **« réflexion »** : `chat_template_kwargs` = `{"enable_thinking": true}`, `reasoning_budget_tokens` = `1024`, `reasoning_budget_message` = `"\n\nJe dois maintenant conclure…\n"`.
 2. **Modèle de tâche** : Réglages admin → Interface → Modèle de tâche = **« rapide »**. Sinon chaque génération de titre, de tags ou de suggestion lance elle aussi un long brouillon de réflexion, en parallèle de votre réponse.
@@ -326,6 +416,15 @@ Le vocabulaire métier est géré par deux fichiers placés à côté du serveur
 
 Après modification de l'un de ces fichiers, recharger le service : `launchctl kickstart -k gui/$(id -u)/com.whisper.stt`.
 
+## Génération d'images (optionnelle)
+
+La génération d'images a été **testée, intégrée à Open WebUI, puis désinstallée** : les services en ligne font bien mieux, et le GPU est plus utile au LLM. Tout le nécessaire pour la réinstaller est conservé dans [`extras/image-generation/`](extras/image-generation/README.fr.md) :
+- stable-diffusion.cpp en Vulkan ;
+- **Z-Image-Turbo** : ~65 s en 512 px, ~4 min 30 en 1024 px, texte exact dans les images ;
+- SDXL-Turbo : ~19 s en 512 px avec TAESD ;
+- le branchement dans Open WebUI et ses pièges ;
+- une note sur Qwen-Image.
+
 ## Dépannage
 
 | Symptôme | Cause | Solution |
@@ -344,7 +443,13 @@ Après modification de l'un de ces fichiers, recharger le service : `launchctl k
 | CPU ~700 % pendant la génération | attente active en boucle | `-t 2 -tb 2 --poll 0` |
 | Open WebUI redémarre quand on dicte | conflit OpenMP dans son Whisper intégré | utiliser le service de dictée séparé |
 | Micro « refusé » dans un navigateur intégré | certains navigateurs intégrés bloquent `getUserMedia` | utiliser Safari ou Chrome sur `http://localhost:3000` (localhost est considéré comme sûr) |
-| `warmup: the mmproj graph uses unsupported operators by the backend` | quelques opérations du module vision n'ont pas de kernel Vulkan | sans conséquence : ces opérations basculent sur le CPU, et les images fonctionnent (~5 s) |
+| `warmup: the mmproj graph uses unsupported operators by the backend` | quelques opérations du module vision n'ont pas de kernel Vulkan | sans conséquence à `image-max-tokens = 1024` (~20 s par page) ; au-delà, l'encodeur ralentit fortement, voir Réglages §8 |
+| Génération ~25 % plus lente que prévu ; une image prend ~2 min | `-fa on` : la flash attention tourne sur le CPU | `fa = auto` (Réglages §0) |
+| Tout le Mac se fige pendant la lecture d'un long prompt ou d'une image | de longs micro-lots GPU privent le WindowServer du GPU | `ub = 128` (Réglages §6) ; éviter de faire tourner plusieurs modèles à la fois |
+| HTTP 400 `model name is missing from the request` | le mode routeur exige le champ `model` | ajouter `"model": "qwen3.5-9b-gpu"` (ou un autre identifiant de `/v1/models`) |
+| Gemma répond lentement, ou `content` est vide avec un petit `max_tokens` | Gemma 4 réfléchit par défaut | `chat-template-kwargs = {"enable_thinking":false}` dans sa section |
+| Gemma lit mal les chiffres d'une image, ou décrit des choses absentes | image plafonnée par `ub` (E4B), ou `ub > 512` (12B) | Réglages §8 ; utiliser Qwen pour les documents |
+| Open WebUI : `disk I/O error` après une modification de `webui.db` | base modifiée depuis le Mac pendant que le conteneur tournait (SQLite WAL via virtiofs) | arrêter le conteneur, modifier, le redémarrer |
 
 Journaux : `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` et `docker logs open-webui`. Contrôle de l'état : `~/.local/share/llm-local-intel-mac-amd/scripts/healthcheck.sh`.
 
@@ -356,13 +461,21 @@ Journaux : `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` et `docker log
 4. **Un petit modèle invente les faits métier avec aplomb.**
    - Sur une phrase parfaitement transcrite à propos de sigles du numérique en santé (INS, DNS), un modèle de 9B en a développé deux de travers et en a inventé un troisième, inexistant.
    - Un **glossaire et une règle « ne jamais inventer de sigle »** dans le prompt système ont réglé le problème : les définitions sont devenues justes, et sur un sigle inconnu le modèle **s'abstient** au lieu d'inventer.
-   - Au-delà des sigles, pour le fond, utiliser une base documentaire (RAG) sur les documents de référence. La recherche elle-même est quasi instantanée ; le coût vient des tokens de prompt supplémentaires (~270 tok/s ici).
+   - Au-delà des sigles, pour le fond, utiliser une base documentaire (RAG) sur les documents de référence. La recherche elle-même est quasi instantanée ; le coût vient des tokens de prompt supplémentaires (~250 tok/s ici).
+5. **Un réglage qui « marche » peut quand même être mauvais.** `-fa on` n'a jamais produit d'erreur, et pourtant il a fait tourner l'attention sur le CPU pendant des semaines (−28 %). Lire les avertissements du journal du serveur.
+6. **Un banc d'essai répond à la question posée, dans les conditions fixées.** Une première comparaison vision plaçait ici Qwen loin devant Gemma. En la relisant, plusieurs biais sont apparus :
+   - les images de Gemma avaient été plafonnées à la moitié du budget de Qwen par un réglage de lot ;
+   - Gemma E4B était une version non QAT ;
+   - tous les modèles utilisaient les mêmes réglages de génération, au lieu de ceux de chaque éditeur ;
+   - le prompt avait été mis au point sur Qwen.
+
+   Documenter les conditions, et se méfier d'un verdict tranché tiré d'un petit échantillon.
 
 ## Désinstallation
 
 ```bash
 ~/.local/share/llm-local-intel-mac-amd/uninstall.sh            # services, binaires, conteneur Open WebUI (conserve modèles, données, VM Colima)
-~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # supprime aussi la VM Colima + outils Docker, les données d'Open WebUI et le modèle par défaut
+~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # supprime aussi la VM Colima + outils Docker, les données d'Open WebUI et les modèles installés
 ```
 
 ## Licence
@@ -370,4 +483,4 @@ Journaux : `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` et `docker log
 [MIT](LICENSE) pour les scripts et la documentation de ce dépôt. Les composants inclus et tiers gardent leurs propres licences :
 - llama.cpp (MIT) et MoltenVK (Apache-2.0) : leurs textes de licence sont livrés dans `licenses/` à l'intérieur du paquet ;
 - Ollama (MIT), Open WebUI (sa propre licence), faster-whisper (MIT) ;
-- les modèles (Qwen 3.5 : Apache-2.0).
+- les modèles (Qwen 3.5 et Gemma 4 : Apache-2.0).

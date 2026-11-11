@@ -16,8 +16,9 @@ if [ "$PURGE" = 1 ]; then
   command -v colima >/dev/null 2>&1 && colima delete -f >/dev/null 2>&1 && echo "deleted the Colima VM" || true
   rm -f "$HOME/.local/bin/colima" "$HOME/.local/bin/docker" "$HOME/.local/bin/limactl" "$HOME/.local/bin/lima"
   rm -rf "$HOME/.local/opt/lima" "$HOME/.local/share/open-webui-docker" "$HOME/.config/open-webui" \
-         "$HOME/models/Qwen3.5-9B-Q4_K_M.gguf" "$HOME/models/mmproj-Qwen3.5-9B-F16.gguf"
-  echo "Purged: Colima VM + Docker tools, Open WebUI data and secret, default model."
+         "$HOME/models/Qwen3.5-9B-Q4_K_M.gguf" "$HOME/models/mmproj-Qwen3.5-9B-F16.gguf" \
+         "$HOME/models/gemma-4-e4b-it-qat-q4_0.gguf" "$HOME/models/gemma-4-12b-it-qat-q4_0.gguf"
+  echo "Purged: Colima VM + Docker tools, Open WebUI data and secret, the installed models."
 else
   echo "Kept: ~/models, Open WebUI data (~/.local/share/open-webui-docker), Colima VM and Docker tools. Use --purge to remove them."
 fi

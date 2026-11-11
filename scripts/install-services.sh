@@ -9,6 +9,19 @@ LA="$HOME/Library/LaunchAgents"
 UID_="$(id -u)"
 mkdir -p "$LA" ~/Library/Logs/{ollama,llama-vk,whisper-stt,colima}
 
+# Router model presets: render llama/models.ini, keeping only the models whose file is present
+# (e.g. the Gemma sections are dropped unless install.sh ran with --gemma).
+if [ -d "$HOME/.local/share/llama-vk" ]; then
+  sed -e "s#__HOME__#$HOME#g" llama/models.ini | awk '
+    function flush() { if (sec != "" && (keep || sec == "[*]")) printf "%s", buf; buf = "" }
+    /^\[/ { flush(); sec = $0; keep = 1; buf = $0 "\n"; next }
+    sec == "" { print; next }
+    { buf = buf $0 "\n"
+      if ($1 == "model" && $2 == "=") { f = $0; sub(/^model *= */, "", f); if (system("test -s \"" f "\"") != 0) keep = 0 } }
+    END { flush() }' > "$HOME/.local/share/llama-vk/models.ini"
+  echo "models: $(grep -E '^\[' "$HOME/.local/share/llama-vk/models.ini" | grep -v '\[\*\]' | tr -d '[]' | paste -sd ' ' -)"
+fi
+
 for p in launchd/*.plist; do
   label="$(basename "$p" .plist)"
   # Skip services whose program is not installed (e.g. Ollama, or Colima/Whisper without --full)
