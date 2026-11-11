@@ -1,0 +1,12 @@
+# Local SearXNG for Open WebUI's web search (rendered by scripts/searxng-docker.sh; __SECRET__ is replaced).
+use_default_settings: true
+server:
+  secret_key: "__SECRET__"
+  limiter: false          # the only client is Open WebUI on a private Docker network
+  image_proxy: false
+  public_instance: false
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json                # required by Open WebUI

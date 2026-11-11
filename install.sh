@@ -4,11 +4,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --full      # + Open WebUI (Docker) + Whisper dictation
 #   curl -fsSL .../install.sh | bash -s -- --full --gemma   # + Gemma 4 E4B and 12B (QAT 4-bit, ~12 GB)
+#   curl -fsSL .../install.sh | bash -s -- --full --coder   # + Qwen3-Coder 30B-A3B (code, 18.6 GB)
 #
 # Options:
-#   --full          also install Open WebUI (official Docker image, via Colima) and Whisper dictation
+#   --full          also install Open WebUI (official Docker image, via Colima), local web search (SearXNG)
+#                   and Whisper dictation
 #   --no-model      do not download the default model (Qwen 3.5 9B Q4_K_M + vision, ~6.5 GB)
 #   --gemma         also download Gemma 4 E4B and Gemma 4 12B (Google QAT Q4_0, text only, ~12 GB)
+#   --coder         also download Qwen3-Coder 30B-A3B (Q4_K_M, 18.6 GB; experts run from RAM: 32 GB+ RAM advised)
 #   --no-service    install files only, do not create/start LaunchAgents
 #
 # Everything goes under your home directory; nothing needs sudo.
@@ -26,15 +29,18 @@ MMPROJ="mmproj-F16.gguf"
 # Gemma 4, Google's official QAT 4-bit builds (served by the same router, one model at a time)
 GEMMA_E4B_URL="https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf"
 GEMMA_12B_URL="https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf"
+# Qwen3-Coder 30B-A3B (mixture of experts; experts kept in RAM, see llama/models.ini)
+CODER_URL="https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
 
 APP="$HOME/.local/share/llm-local-intel-mac-amd"   # repo files (templates, STT service)
 BIN="$HOME/.local/share/llama-vk"                   # llama.cpp binaries
 MODELS="$HOME/models"
 
-FULL=0; WITH_MODEL=1; WITH_SERVICE=1; GEMMA=0
+FULL=0; WITH_MODEL=1; WITH_SERVICE=1; GEMMA=0; CODER=0
 for a in "$@"; do case "$a" in
   --full) FULL=1 ;; --no-model) WITH_MODEL=0 ;; --no-service) WITH_SERVICE=0 ;; --gemma) GEMMA=1 ;;
-  -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+  --coder) CODER=1 ;;
+  -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
   *) echo "unknown option: $a" >&2; exit 2 ;;
 esac; done
 
@@ -52,7 +58,7 @@ VRAM="$(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/VRAM/{prin
 echo "macOS $(sw_vers -productVersion) | GPU: ${GPU:-unknown} | VRAM: ${VRAM:-unknown}"
 case "$GPU" in *AMD*|*Radeon*) ;; *) echo "Warning: no AMD GPU detected; llama.cpp will fall back to the CPU." ;; esac
 FREE_GB="$(df -g "$HOME" | awk 'NR==2{print $4}')"
-NEED_GB=10; [ "$GEMMA" = 1 ] && NEED_GB=23
+NEED_GB=10; [ "$GEMMA" = 1 ] && NEED_GB=$((NEED_GB + 13)); [ "$CODER" = 1 ] && NEED_GB=$((NEED_GB + 20))
 [ "$FREE_GB" -ge "$NEED_GB" ] || die "At least ${NEED_GB} GB of free disk space is needed (found ${FREE_GB} GB)."
 
 # --- 2. Repo files (templates, STT service) -----------------------------------
@@ -98,6 +104,14 @@ if [ "$GEMMA" = 1 ]; then
     curl -fL --progress-bar -C - -o "$dest.part" "$1" && mv "$dest.part" "$dest"
   done
 fi
+if [ "$CODER" = 1 ]; then
+  say "Downloading Qwen3-Coder 30B-A3B (Q4_K_M, 18.6 GB)"
+  RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  [ "$RAM_GB" -ge 32 ] || echo "Warning: ${RAM_GB} GB of RAM; this model keeps ~17 GB of expert weights in RAM (32 GB+ advised)."
+  mkdir -p "$MODELS"; dest="$MODELS/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+  if [ -s "$dest" ]; then echo "already present: $dest"
+  else curl -fL --progress-bar -C - -o "$dest.part" "$CODER_URL" && mv "$dest.part" "$dest"; fi
+fi
 
 # --- 5. Optional (--full): Whisper STT environment + Docker runtime ------------
 if [ "$FULL" = 1 ]; then
@@ -120,6 +134,8 @@ fi
 # --- 7. Optional (--full): Open WebUI, official Docker image --------------------
 # Native Open WebUI >= 0.8 can't be installed reliably on Intel Macs (see README).
 if [ "$FULL" = 1 ]; then
+  say "Starting SearXNG (local metasearch engine for Open WebUI's web search, no port on the Mac)"
+  "$APP/scripts/searxng-docker.sh"
   say "Starting Open WebUI (official Docker image) — first run downloads ~6.5 GB"
   "$APP/scripts/owui-docker.sh"
 fi

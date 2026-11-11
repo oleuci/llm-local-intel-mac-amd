@@ -53,7 +53,7 @@ In Open WebUI (Admin → Settings → Images):
 Then, in a chat: **+** → **Image** → describe the picture.
 
 Open WebUI pitfalls (0.13):
-- **The "Image" toggle does nothing when builtin tools are off.** It only forces generation in **legacy** function-calling mode; in native mode, the model must call the `generate_image` builtin tool. Set the model's *Function calling* to **Legacy**, which still keeps the ~7,900 tokens of builtin tools out of every request.
+- **The "Image" toggle does nothing when builtin tools are off.** It only forces generation in **legacy** function-calling mode; in native mode, the model must call the `generate_image` builtin tool. Set the model's *Function calling* to **Legacy** (already the default with this repo's `owui-docker.sh`, for web search), which still keeps the ~7,900 tokens of builtin tools out of every request.
 - **No timeout to fear.** Open WebUI sets no client timeout unless `AIOHTTP_CLIENT_TIMEOUT` is defined, so a 4-5 min generation is fine.
 - **Never edit `webui.db` from the Mac while the container runs.** SQLite's WAL/shared-memory files don't survive concurrent access across virtiofs, and Open WebUI starts failing with `disk I/O error`. Stop the container, edit, start it again. Better still, use the admin UI.
 
@@ -68,4 +68,4 @@ launchctl bootout gui/$(id -u)/com.sdcpp.server; rm ~/Library/LaunchAgents/com.s
 rm -rf ~/.local/share/sd-vk ~/models/sd ~/Library/Logs/sd-server
 ```
 
-Then disable image generation in Open WebUI, and set *Function calling* back to its default if you changed it.
+Then disable image generation in Open WebUI. Keep *Function calling* on **Legacy**: web search needs it too.

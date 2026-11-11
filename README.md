@@ -27,11 +27,12 @@ Three models are served behind one OpenAI-compatible endpoint (llama.cpp **route
 9. [Using the API](#using-the-api)
 10. [Open WebUI: why Docker on an Intel Mac](#open-webui-why-docker-on-an-intel-mac)
 11. [Open WebUI setup](#open-webui-setup)
-12. [Speech-to-text (dictation)](#speech-to-text-dictation)
-13. [Image generation (optional, tested then uninstalled)](#image-generation-optional)
-14. [Troubleshooting](#troubleshooting)
-15. [Lessons learned](#lessons-learned)
-16. [Uninstall](#uninstall) · [License](#license)
+12. [Web search (local SearXNG)](#web-search-local-searxng)
+13. [Speech-to-text (dictation)](#speech-to-text-dictation)
+14. [Image generation (optional, tested then uninstalled)](#image-generation-optional)
+15. [Troubleshooting](#troubleshooting)
+16. [Lessons learned](#lessons-learned)
+17. [Uninstall](#uninstall) · [License](#license)
 
 ---
 
@@ -53,6 +54,7 @@ Through the server, in real chat use (with the [tuning](#tuning-measured) below,
 | **Qwen 3.5 9B** Q4_K_M + vision | **~30-33 tok/s** | ~225-250 tok/s | reads a full-page screenshot (1,024 image tokens) in ~20-25 s |
 | **Gemma 4 E4B** QAT Q4_0 | **~44 tok/s** | ~500 tok/s | fastest |
 | **Gemma 4 12B** QAT Q4_0 | **~24 tok/s** | ~130 tok/s | most capable |
+| **Qwen3-Coder 30B-A3B** Q4_K_M (optional) | **~12 tok/s** | ~84 tok/s | code; 18.6 GB, experts run from system RAM ([Tuning §12](#12-a-moe-model-bigger-than-vram-experts-in-ram)) |
 
 `llama-bench` is a best case, with no chat template, no sampling and an empty context. A short chat answer comes back in about **1-1.5 s**. Switching to another model takes **5-12 s** on its first message (load from disk cache).
 
@@ -71,6 +73,9 @@ curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main
 
 # Same, plus Gemma 4 E4B and Gemma 4 12B (Google QAT 4-bit, ~12 GB more)
 curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash -s -- --full --gemma
+
+# Same, plus Qwen3-Coder 30B-A3B for code (18.6 GB more; 32 GB+ of RAM advised)
+curl -fsSL https://raw.githubusercontent.com/oleuci/llm-local-intel-mac-amd/main/install.sh | bash -s -- --full --coder
 ```
 
 `--full` requires **macOS 13 or later**: Open WebUI runs in a VM based on Apple's Virtualization.framework.
@@ -79,15 +84,15 @@ What the installer does, step by step (read [`install.sh`](install.sh) before ru
 1. It checks that the Mac runs macOS ≥ 12, is x86_64, and has an AMD GPU and enough free disk space.
 2. It downloads the **prebuilt llama.cpp Vulkan package** from this repo's GitHub Releases, **verifies its SHA-256**, and installs it into `~/.local/share/llama-vk/`.
 3. It runs `llama-server --list-devices` to confirm the GPU is visible through Vulkan.
-4. It downloads **Qwen 3.5 9B Q4_K_M** and its **vision projector** from Hugging Face (`unsloth/Qwen3.5-9B-GGUF`, about 6.5 GB) into `~/models/`. With `--gemma`, it also downloads Google's official **Gemma 4 E4B** and **Gemma 4 12B** QAT Q4_0 builds (~12 GB; 23 GB free disk needed).
+4. It downloads **Qwen 3.5 9B Q4_K_M** and its **vision projector** from Hugging Face (`unsloth/Qwen3.5-9B-GGUF`, about 6.5 GB) into `~/models/`. With `--gemma`, it also downloads Google's official **Gemma 4 E4B** and **Gemma 4 12B** QAT Q4_0 builds (~12 GB; 23 GB free disk needed). With `--coder`, it downloads **Qwen3-Coder 30B-A3B** Q4_K_M (`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`, 18.6 GB; 20 GB more free disk).
 5. With `--full`, it also installs:
    - the **Whisper dictation environment**, a dedicated Python venv created with [uv](https://docs.astral.sh/uv/). If uv is missing, it runs Astral's official uv installer. The Whisper model (~1.5 GB) is downloaded on first use;
    - a **Docker runtime without Docker Desktop**: Colima, Lima and the Docker CLI, all official binaries. The Colima and Lima checksums are verified; no sudo, no license to accept.
 6. It installs **LaunchAgents** (services that start at login and restart if they crash). The llama.cpp service runs in **router mode** and only lists the models actually downloaded.
-7. With `--full`, it starts **Open WebUI from the official Docker image** on `127.0.0.1:3000`. The image is ~6.5 GB on first run. See [why Docker](#open-webui-why-docker-on-an-intel-mac).
+7. With `--full`, it starts a **SearXNG** container for [web search](#web-search-local-searxng) (no port published on the Mac), then **Open WebUI from the official Docker image** on `127.0.0.1:3000`. The Open WebUI image is ~6.5 GB on first run. See [why Docker](#open-webui-why-docker-on-an-intel-mac).
 8. It runs a health check.
 
-Options: `--full`, `--gemma`, `--no-model`, `--no-service`.
+Options: `--full`, `--gemma`, `--coder`, `--no-model`, `--no-service`.
 
 ## What did *not* work (so you don't have to try)
 
@@ -107,8 +112,9 @@ Options: `--full`, `--gemma`, `--no-model`, `--no-service`.
 Browser ──► Open WebUI         127.0.0.1:3000   (optional, --full: official Docker image in a Colima VM)
                │   via host.docker.internal → relayed by Lima to the Mac's 127.0.0.1
                ├─► llama-server 127.0.0.1:8080  ── Vulkan ─► MoltenVK ─► Metal ─► Radeon   (native)
-               │      ROUTER: qwen3.5-9b-gpu (text + vision) | gemma-4-e4b | gemma-4-12b
+               │      ROUTER: qwen3.5-9b-gpu (text + vision) | gemma-4-e4b | gemma-4-12b | qwen3-coder-30b
                │      OpenAI-compatible API /v1, one model on the GPU and one request at a time
+               ├─► SearXNG      searxng:8080    (optional, --full: container on a private Docker network, no Mac port)
                ├─► Whisper STT  127.0.0.1:8092  (optional, native, CPU, dictation)
                └─► Ollama       127.0.0.1:11434 (optional, CPU, model management)
 ```
@@ -317,6 +323,22 @@ Without `enable_thinking: false`, Gemma 4 E4B and 12B write 600-750 characters o
 | `--swa-full` for Gemma | no gain: current llama.cpp already re-processes only the new turn (17-100 tokens). Prompt processing is slower. |
 | Q6_K / Q8_0 | see §9 |
 
+### 12. A MoE model bigger than VRAM: experts in RAM
+
+Qwen3-Coder 30B-A3B is a **mixture of experts**: 30B parameters in total, but only ~3B are used for each token. At Q4_K_M it is 18.6 GB, too big for 16 GB of VRAM (macOS itself already uses ~4.4 GB of it here). `--n-cpu-moe N` keeps the expert weights of the first N layers in system RAM, computed on the CPU; attention and the KV cache stay on the GPU. Because few experts work per token, the speed loss is far smaller than offloading a dense model.
+
+| Setting (prompt of 2,400 tokens) | Prompt | Generation | VRAM left for the display |
+|---|---:|---:|---:|
+| `n-cpu-moe 30`, `ub 128` | — | 19.5 tok/s | **0.3 GB**: display starved, rejected |
+| `n-cpu-moe 40`, `ub 128` | 40 tok/s | 15 tok/s | 3.2 GB |
+| `n-cpu-moe 40`, `ub 1024` | 119 tok/s | 13.6 tok/s | 2.0 GB |
+| **`n-cpu-moe 48` (all experts in RAM), `ub 512`** | **84 tok/s** | **12 tok/s** | **5.0 GB** (Qwen 3.5 9B leaves 4) |
+
+- **`ub` matters here, unlike for dense models**: with experts in RAM, every batch copies their weights to the GPU. With `ub 128`, prompt processing halves. That hurts coding agents, which send ~10,000-token prompts.
+- More CPU threads for this model only (`t = 6`): the experts run on the CPU.
+- Free VRAM can be read with `ioreg -r -d1 -w0 -c IOAccelerator | grep -o '"vramFreeBytes"=[0-9]*'`.
+- In real use the display stayed fluid, and generation at ~12 tok/s is faster than reading speed. The first load is quick once the file sits in the macOS file cache (here, 128 GB of RAM).
+
 ## Choosing a model / sizing VRAM
 
 **Generation speed ≈ effective memory bandwidth ÷ bytes of active weights read per token.**
@@ -330,6 +352,7 @@ Without `enable_thinking: false`, Gemma 4 E4B and 12B write 600-750 characters o
 | Gemma 4 E4B (QAT Q4_0, 5.2 GB, ~4B active) | ✅ | **~44 tok/s** (measured) |
 | Dense 12-14B (Q4 ≈ 7-9 GB) | ✅, context gets tighter | **~24 tok/s** (measured: Gemma 4 12B QAT) |
 | Dense ≥ 27B | ❌ partial offload | slow |
+| Medium MoE (30B, ~3B active), experts in RAM (`--n-cpu-moe`) | attention + KV only | **~12 tok/s** (measured: Qwen3-Coder 30B-A3B, §12) |
 | Large MoE (100B+, ~5-6B active) with experts in RAM (`--n-cpu-moe`) | weights in RAM | **~5-8 tok/s (estimated)**: batch jobs only |
 
 **KV cache matters as much as the weights:**
@@ -346,7 +369,7 @@ curl -s http://127.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/
   "max_tokens": 200 }'
 ```
 
-In router mode, **`"model"` is required** (`qwen3.5-9b-gpu`, `gemma-4-e4b`, `gemma-4-12b`). Without it, the server answers HTTP 400 `model name is missing from the request`.
+In router mode, **`"model"` is required** (`qwen3.5-9b-gpu`, `gemma-4-e4b`, `gemma-4-12b`, `qwen3-coder-30b`). Without it, the server answers HTTP 400 `model name is missing from the request`.
 
 The response includes `timings` (`prompt_per_second`, `predicted_per_second`). Other useful endpoints:
 - `GET /health`;
@@ -383,7 +406,7 @@ scripts/owui-docker.sh v0.13.4    # update: new image, same data
 
 ## Open WebUI setup
 
-`--full` connects llama-server automatically: `OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1`. It also turns builtin tools off by default.
+`--full` connects llama-server automatically: `OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1`. It also turns builtin tools off by default and configures [web search](#web-search-local-searxng).
 
 All the router's models show up automatically in the model selector. Then configure, in this order:
 1. **Two models on the same base**, in Workspace → Models → New. Repeat for each base you want, e.g. a "fast" preset on `gemma-4-e4b`:
@@ -391,7 +414,37 @@ All the router's models show up automatically in the model selector. Then config
    - **"thinking"**: `chat_template_kwargs` = `{"enable_thinking": true}`, `reasoning_budget_tokens` = `1024`, `reasoning_budget_message` = `"\n\nI must now conclude…\n"`.
 2. **Task model**: Admin → Settings → Interface → Task model = **"fast"**. Otherwise every title, tag and follow-up generation also starts a long thinking draft, in parallel with your answer.
 3. **Default model** = "fast". Admin → Settings → Models.
-4. Optional: a **system prompt with a domain glossary**. See [Lessons learned](#lessons-learned) and [`open-webui/system-prompt-sante-fr.md`](open-webui/system-prompt-sante-fr.md).
+4. A **system prompt** per model (Workspace → Models → edit → System prompt): [`open-webui/system-prompt-en.md`](open-webui/system-prompt-en.md) or [`system-prompt-fr.md`](open-webui/system-prompt-fr.md). It is general-purpose: reliability rules (no invented facts, sources or acronyms) and the **short summary + links** format for web search results.
+5. Optional: a **domain glossary** in the system prompt. See [Lessons learned](#lessons-learned) and [`open-webui/system-prompt-sante-fr.md`](open-webui/system-prompt-sante-fr.md).
+
+The simplest setup is **one entry per model**, without "fast/thinking" pairs, if you rarely need thinking mode. In that case, set the **task model to empty** (= the model of the conversation). If it is set to a fixed model, every title or tag generation makes the router switch models (5-12 s each, and "Server disconnected" on the answer in progress).
+
+## Web search (local SearXNG)
+
+Local models know nothing after their training cutoff. With `--full`, Open WebUI gets a **"Web search" button** in the chat input (off until you click it; it resets when you change model or chat):
+1. the model writes the search queries;
+2. Open WebUI sends them to **SearXNG**, a metasearch engine running in its own container (no account, no API key, no ad profile; it queries Google, Bing, DuckDuckGo… itself);
+3. the model answers from the results: a **short summary (5 points at most), then a "Sources" list with the real links**.
+
+| Choice | Why |
+|---|---|
+| SearXNG in a container, **no port published on the Mac** | Open WebUI reaches it by name on a private Docker network (`owui-net`, `http://searxng:8080/search`). JSON output enabled, rate limiter off (single client). Pinned image tag; ~130 MB of RAM. |
+| **Engine snippets only** (`BYPASS_WEB_SEARCH_WEB_LOADER` + `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL`) | title + link + ~150-character summary of 6 results per query, **< 1,000 tokens**. Downloading and embedding 4 full pages took most of the wait and was the same for every model. Trade-off: shallower answers; open the links for details. |
+| `function_calling = legacy` (`DEFAULT_MODEL_PARAMS`) | in Open WebUI 0.13 **native** mode, the button does **nothing**: it waits for the model to call the builtin `web_search` tool, and builtin tools are off (they add ~7,900 tokens to every request). |
+| `RAG_SOURCE_METADATA_KEYS=source,title` | by default the model only sees numbered snippets, not their URLs, and would invent links when asked for them. |
+| `RAG_TEMPLATE` = [`open-webui/rag-template.md`](open-webui/rag-template.md) | the default template goes into the *user* message, so it overrides the system prompt, and it only asks for `[id]` citations: no links. Ours asks for 5 points at most, then `[id] title — URL` lines. **The format rule sits *after* the results**: placed before them, Qwen 9B ignored it. Tested on a fresh install with no system prompt: Qwen 3.5 9B and Gemma 4 E4B listed 4-5 links, **all present in the real results**, in 17-30 s. |
+| Embedding model `intfloat/multilingual-e5-small` (prefixes `query: ` / `passage: `) | used for attached documents. The default `all-MiniLM-L6-v2` is English-only and misses non-English passages (relevant passage 0.88 vs 0.74 for off-topic ones with e5). |
+
+Don't download full pages *and* bypass retrieval at the same time: Open WebUI then injects the pages **without any size limit** (`WEB_FETCH_MAX_CONTENT_LENGTH` only applies to the builtin fetch tool) and can fill the 32k context.
+
+**Qwen 3.5's chat template rejects a second system message** (HTTP 500 `System message must be at the beginning`). Open WebUI 0.13 adds search context to the *user* message, so it's fine, unless you set `RAG_SYSTEM_CONTEXT=true`. Don't.
+
+These settings are passed as environment variables, which seed Open WebUI's configuration **on first start only**. On an existing install, set them in Admin → Settings → Web Search, and per model (Advanced params → Function calling = Legacy; Capabilities → Web search).
+
+```bash
+scripts/searxng-docker.sh          # (re)create the SearXNG container; Open WebUI is attached to the same network
+docker exec searxng wget -qO- 'http://127.0.0.1:8080/search?q=test&format=json' | head -c 300   # test
+```
 
 ## Speech-to-text (dictation)
 
@@ -449,6 +502,12 @@ Image generation was **tested, integrated into Open WebUI, then uninstalled**: h
 | HTTP 400 `model name is missing from the request` | router mode needs the `model` field | add `"model": "qwen3.5-9b-gpu"` (or another ID from `/v1/models`) |
 | Gemma answers slowly, or `content` is empty with a small `max_tokens` | Gemma 4 thinks by default | `chat-template-kwargs = {"enable_thinking":false}` in its preset |
 | Gemma misreads numbers in images, or describes things that aren't there | image capped by `ub` (E4B), or `ub > 512` (12B) | Tuning §8; use Qwen for documents |
+| "Web search" button on, but the model answers from memory | the model's function calling is "native" (Open WebUI 0.13 then waits for a builtin-tool call) | Advanced params → Function calling = **Legacy** (`DEFAULT_MODEL_PARAMS='{"function_calling":"legacy"}'`) |
+| No "Web search" button | web search disabled, or the model lacks the capability | Admin → Settings → Web Search; model → Capabilities → Web search |
+| The model invents links in its "Sources" | URLs aren't passed to the model by default | `RAG_SOURCE_METADATA_KEYS=source,title` |
+| Web answers have `[1]` citations but no list of links | Open WebUI's default RAG template, in the user message, overrides the system prompt | `RAG_TEMPLATE` from [`open-webui/rag-template.md`](open-webui/rag-template.md) (Admin → Settings → Documents → RAG template on an existing install) |
+| Qwen 3.5: HTTP 500 `System message must be at the beginning` | a second system message (e.g. `RAG_SYSTEM_CONTEXT=true`) | leave `RAG_SYSTEM_CONTEXT` unset |
+| Qwen3-Coder: the display stutters, or almost no free VRAM | too many expert layers on the GPU | `n-cpu-moe = 48` (Tuning §12) |
 | Open WebUI: `disk I/O error` after editing `webui.db` | the database was edited from the Mac while the container was running (SQLite WAL over virtiofs) | stop the container, edit, start it again |
 
 Logs: `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` and `docker logs open-webui`. Status check: `~/.local/share/llm-local-intel-mac-amd/scripts/healthcheck.sh`.
@@ -470,12 +529,14 @@ Logs: `~/Library/Logs/{llama-vk,whisper-stt,colima,ollama}/` and `docker logs op
    - the prompt had been tuned on Qwen.
 
    Document the conditions, and be wary of a clear-cut verdict drawn from a small sample.
+7. **A button can be a no-op.** Open WebUI's "Web search" and "Image" buttons did nothing in native function-calling mode, with no error. Check what actually ran (logs, the search engine's traffic), not just that the UI accepted the click.
+8. **On a shared GPU, budget for the display.** The fastest setting for the 30B coder left 0.3 GB of VRAM to macOS. Measure free VRAM, and keep at least what your everyday model leaves.
 
 ## Uninstall
 
 ```bash
-~/.local/share/llm-local-intel-mac-amd/uninstall.sh            # services, binaries, Open WebUI container (keeps models, data, Colima VM)
-~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # also deletes the Colima VM + Docker tools, Open WebUI data and the installed models
+~/.local/share/llm-local-intel-mac-amd/uninstall.sh            # services, binaries, Open WebUI + SearXNG containers (keeps models, data, Colima VM)
+~/.local/share/llm-local-intel-mac-amd/uninstall.sh --purge    # also deletes the Colima VM + Docker tools, Open WebUI/SearXNG data and the installed models
 ```
 
 ## License

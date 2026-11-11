@@ -8,6 +8,7 @@ ok "llama.cpp GPU (8080)"  "$(curl -s -m3 127.0.0.1:8080/health || echo KO)"
 ok "  router models"       "$(curl -s -m3 127.0.0.1:8080/v1/models | python3 -c 'import json,sys;print(" ".join(m["id"]+"("+str(m.get("status",{}).get("value","?"))+")" for m in json.load(sys.stdin)["data"]))' 2>/dev/null || echo KO)"
 ok "Open WebUI (3000)"     "$(curl -s -m3 127.0.0.1:3000/health || echo KO) $(curl -s -m3 127.0.0.1:3000/api/version || true)"
 ok "Docker container"      "$(PATH=$HOME/.local/bin:$PATH docker ps --filter name=open-webui --format '{{.Status}}' 2>/dev/null || echo KO)"
+ok "SearXNG (Docker only)"  "$(PATH=$HOME/.local/bin:$PATH docker exec searxng wget -qO- -T3 http://127.0.0.1:8080/healthz 2>/dev/null || echo 'KO / not installed')"
 ok "Whisper STT (8092)"    "$(curl -s -m3 127.0.0.1:8092/health || echo KO)"
 echo "Listening sockets (must be 127.0.0.1 only):"
 lsof -nP -iTCP -sTCP:LISTEN | awk '/:(3000|8080|8092|11434) /{print "  "$1, $9}'

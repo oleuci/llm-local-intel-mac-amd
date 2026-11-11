@@ -53,7 +53,7 @@ Dans Open WebUI (Administration → Réglages → Images) :
 Ensuite, dans une conversation : **+** → **Image** → décrire l'image voulue.
 
 Pièges d'Open WebUI (0.13) :
-- **Le bouton « Image » ne fait rien quand les outils intégrés sont coupés.** Il ne force la génération qu'en mode d'appel de fonctions **legacy** ; en mode natif, c'est au modèle d'appeler l'outil intégré `generate_image`. Mettre l'appel de fonctions du modèle sur **Legacy**, ce qui évite quand même d'injecter les ~7 900 tokens des outils intégrés à chaque requête.
+- **Le bouton « Image » ne fait rien quand les outils intégrés sont coupés.** Il ne force la génération qu'en mode d'appel de fonctions **legacy** ; en mode natif, c'est au modèle d'appeler l'outil intégré `generate_image`. Mettre l'appel de fonctions du modèle sur **Legacy** (déjà le défaut avec le `owui-docker.sh` de ce dépôt, pour la recherche web), ce qui évite quand même d'injecter les ~7 900 tokens des outils intégrés à chaque requête.
 - **Pas de délai d'attente à craindre.** Open WebUI ne fixe aucune limite tant que `AIOHTTP_CLIENT_TIMEOUT` n'est pas défini, donc une génération de 4-5 min passe.
 - **Ne jamais modifier `webui.db` depuis le Mac pendant que le conteneur tourne.** Les fichiers WAL et de mémoire partagée de SQLite ne supportent pas un accès simultané à travers virtiofs, et Open WebUI se met à renvoyer `disk I/O error`. Arrêter le conteneur, modifier, le redémarrer. Mieux encore : passer par l'interface d'administration.
 
@@ -68,4 +68,4 @@ launchctl bootout gui/$(id -u)/com.sdcpp.server; rm ~/Library/LaunchAgents/com.s
 rm -rf ~/.local/share/sd-vk ~/models/sd ~/Library/Logs/sd-server
 ```
 
-Puis désactiver la génération d'images dans Open WebUI, et remettre l'appel de fonctions par défaut si vous l'aviez changé.
+Puis désactiver la génération d'images dans Open WebUI. Laisser l'appel de fonctions sur **Legacy** : la recherche web en a aussi besoin.
